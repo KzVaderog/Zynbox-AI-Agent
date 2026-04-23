@@ -1,5 +1,8 @@
-# ZYNBOX – Personal Productivity AI Agent
+# =============================================================================
+# ZYNBOX v2.0 – Personal Productivity AI Agent
 # Team: Utkarsh Sharma, Zeeshan, Utkarsh Pandey
+# =============================================================================
+
 
 import streamlit as st
 import json
@@ -445,17 +448,17 @@ def delete_note(note_id: int) -> str:
     return f"🗑️ Note `#{note_id}` deleted."
 
 # =============================================================================
-# SECTION 8: CLAUDE AI INTEGRATION
+# SECTION 8: GEMINI AI INTEGRATION
 # =============================================================================
 
-def get_claude_response(user_input: str, theme_key: str, chat_history: list, api_key: str) -> str:
+def get_gemini_response(user_input: str, theme_key: str, chat_history: list, api_key: str) -> str:
     """
-    Call the Anthropic Claude API for intelligent, context-aware responses.
+    Call the Google Gemini API for intelligent, context-aware responses.
     Passes the last 8 messages as conversation history for continuity.
     """
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        from google import genai
+        client = genai.Client(api_key=api_key)
 
         # Mode-specific system prompt
         if theme_key == "study":
@@ -476,39 +479,39 @@ def get_claude_response(user_input: str, theme_key: str, chat_history: list, api
             )
 
         # Build message history (last 8 turns for context)
-        messages = []
+        formatted_history = []
         for msg in chat_history[-8:]:
-            role = "user" if msg["role"] == "user" else "assistant"
-            messages.append({"role": role, "content": msg["text"]})
+            role = "user" if msg["role"] == "user" else "model"
+            formatted_history.append({"role": role, "parts": [{"text": msg["text"]}]})
 
-        messages.append({"role": "user", "content": user_input})
+        # Append current user input
+        formatted_history.append({"role": "user", "parts": [{"text": user_input}]})
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=messages,
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=formatted_history,
+            config={'system_instruction': system_prompt}
         )
-        return response.content[0].text
+        return response.text
 
     except ImportError:
         return (
-            "⚠️ **Anthropic package not installed.**\n\n"
-            "Run: `pip install anthropic` to enable AI responses."
+            "⚠️ **Google GenAI package not installed.**\n\n"
+            "Run: `pip install google-genai` to enable AI responses."
         )
     except Exception as e:
         err = str(e)
-        if "authentication" in err.lower() or "api_key" in err.lower() or "401" in err:
-            return "❌ **Invalid API key.** Please check your Anthropic API key in the sidebar."
-        if "rate" in err.lower():
+        if "api_key" in err.lower() or "401" in err or "403" in err:
+            return "❌ **Invalid API key.** Please check your Gemini API key in the sidebar."
+        if "quota" in err.lower() or "429" in err:
             return "⏳ **Rate limit reached.** Please wait a moment and try again."
         return (
             f"⚠️ **AI temporarily unavailable.**\n\n"
-            f"Local mode active. Type `help` for commands or check your API key."
+            f"Local mode active. Type `help` for commands or check your API key.\n\nError: {err}"
         )
 
 def get_creative_spark(api_key: str) -> str:
-    """Generate a unique creative prompt using Claude or local fallback."""
+    """Generate a unique creative prompt using Gemini or local fallback."""
     local_prompts = [
         "Write a story that starts with: 'The last algorithm made a decision nobody expected.'",
         "Design an app that solves the problem people don't know they have.",
@@ -521,17 +524,13 @@ def get_creative_spark(api_key: str) -> str:
     if not api_key:
         return f"💡 **Creative Spark:** {random.choice(local_prompts)}"
     try:
-        import anthropic
-        client   = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=120,
-            messages=[{
-                "role": "user",
-                "content": "Give me one unique, inspiring creative prompt or challenge. One sentence only, no preamble."
-            }]
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="Give me one unique, inspiring creative prompt or challenge. One sentence only, no preamble."
         )
-        return f"💡 **Creative Spark:** {response.content[0].text.strip()}"
+        return f"💡 **Creative Spark:** {response.text.strip()}"
     except Exception:
         return f"💡 **Creative Spark:** {random.choice(local_prompts)}"
 
@@ -544,7 +543,7 @@ def chatbot_response(user_input: str, bundle: dict, theme_key: str, api_key: str
     Hybrid response engine:
     1. Rule-based pattern matching (highest priority – commands)
     2. ML-based intent/mood detection (theme switching)
-    3. Claude AI fallback (general conversation)
+    3. Gemini AI fallback (general conversation)
     4. Local fallback (no API key)
     """
     text_lower = user_input.lower().strip()
@@ -616,7 +615,7 @@ def chatbot_response(user_input: str, bundle: dict, theme_key: str, api_key: str
         reply = (
             f"{time_greet}! 👋\n\n"
             f"{t['greeting']}\n\n"
-            f"{'🟢 **AI Mode Active** — Ask me anything!' if api_key else '💡 Add your **Anthropic API key** in the sidebar for full AI chat.'}\n\n"
+            f"{'🟢 **AI Mode Active** — Ask me anything!' if api_key else '💡 Add your **Gemini API key** in the sidebar for full AI chat.'}\n\n"
             f"Type `help` to see all commands."
         )
         return build(reply, "greeting")
@@ -738,16 +737,16 @@ def chatbot_response(user_input: str, bundle: dict, theme_key: str, api_key: str
         st.session_state.pomodoro_start  = datetime.datetime.now()
         return build("⏱️ Pomodoro started! Check the sidebar timer.", "pomodoro")
 
-    # ── 10. CLAUDE AI FALLBACK ────────────────────────────────────────────────
+    # ── 10. GEMINI AI FALLBACK ────────────────────────────────────────────────
     if api_key:
-        ai_reply = get_claude_response(user_input, theme_key, st.session_state.chat_history, api_key)
+        ai_reply = get_gemini_response(user_input, theme_key, st.session_state.chat_history, api_key)
         return build(ai_reply, "ai_response")
 
     # ── 11. LOCAL FALLBACK ────────────────────────────────────────────────────
     quote = random.choice(MOTIVATIONAL)
     return build(
         f"🤔 I'm not sure I caught that fully.\n\n"
-        f"💡 **Pro tip:** Add your **Anthropic API key** in the sidebar to unlock full AI conversation mode — "
+        f"💡 **Pro tip:** Add your **Gemini API key** in the sidebar to unlock full AI conversation mode — "
         f"then you can ask me literally anything!\n\n"
         f"Or type `help` to see available commands.\n\n"
         f"_{quote}_",
@@ -1108,11 +1107,11 @@ def render_sidebar(theme_key: str):
         st.divider()
 
         # ── API Key ───────────────────────────────────────────────────────────
-        st.markdown('<div class="zy-label">🔑 Anthropic API Key</div>', unsafe_allow_html=True)
+        st.markdown('<div class="zy-label">🔑 Gemini API Key</div>', unsafe_allow_html=True)
         api_input = st.text_input(
             "api_key_input", type="password",
             value=st.session_state.api_key,
-            placeholder="sk-ant-api03-…",
+            placeholder="AIzaSy...",
             label_visibility="collapsed",
         )
         if api_input != st.session_state.api_key:
@@ -1206,7 +1205,7 @@ def render_sidebar(theme_key: str):
         <div style="text-align:center; margin-top:14px; color:{t['subtext']};
             font-size:10px; letter-spacing:0.5px; line-height:1.8;">
             Utkarsh Sharma · Zeeshan · Utkarsh Pandey<br>
-            <span style="color:{t['border']};">Powered by Claude AI & Streamlit</span>
+            <span style="color:{t['border']};">Powered by Gemini AI & Streamlit</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1365,7 +1364,7 @@ def main():
                 ai_hint = (
                     "🟢 <strong>AI Mode Active</strong> — Ask me anything! I understand context and remember our conversation."
                     if st.session_state.api_key else
-                    "💡 <strong>Tip:</strong> Add your <strong>Anthropic API key</strong> in the sidebar to unlock full AI conversation mode!"
+                    "💡 <strong>Tip:</strong> Add your <strong>Gemini API key</strong> in the sidebar to unlock full AI conversation mode!"
                 )
                 st.markdown(f"""
                 <div class="bot-bubble" style="max-width:92%;border-left:3px solid {t_data['accent']};margin:8px 0;">
@@ -1417,7 +1416,7 @@ def main():
     st.divider()
     st.markdown(f"""
     <div style="text-align:center;color:{t['subtext']};font-size:11px;padding:4px 0;letter-spacing:0.5px;">
-        ⚡ ZYNBOX v2.0 &nbsp;·&nbsp; Streamlit · Scikit-learn · Gensim · Claude AI
+        ⚡ ZYNBOX v2.0 &nbsp;·&nbsp; Streamlit · Scikit-learn · Gensim · Gemini AI
         &nbsp;·&nbsp; Utkarsh Sharma · Zeeshan · Utkarsh Pandey
     </div>
     """, unsafe_allow_html=True)
